@@ -137,7 +137,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         runCatching {
             repository.connectRealtime(list.id) { changedId ->
                 if (changedId.equals(state.selectedList?.id, ignoreCase = true)) {
-                    viewModelScope.launch { refreshSelectedList() }
+                    viewModelScope.launch { refreshSelectedListInternal() }
                 }
             }
         }
@@ -153,18 +153,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (name.isBlank()) return
         runAction {
             repository.addItem(listId, name.trim(), quantity, unit, note)
-            refreshSelectedList()
+            refreshSelectedListInternal()
         }
     }
 
     fun toggleItem(item: ShoppingItemDto) = runAction {
         repository.updateItem(item.id, UpdateItemRequest(isChecked = !item.isChecked))
-        refreshSelectedList()
+        refreshSelectedListInternal()
     }
 
     fun deleteItem(item: ShoppingItemDto) = runAction {
         repository.deleteItem(item.id)
-        refreshSelectedList()
+        refreshSelectedListInternal()
     }
 
     fun searchOffers(itemName: String) = runAction {
@@ -183,8 +183,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val list = repository.list(listId)
         state = state.copy(selectedList = list)
     }
-
-    private suspend fun refreshSelectedList() = refreshSelectedListInternal()
 
     fun clearError() {
         state = state.copy(error = null)
