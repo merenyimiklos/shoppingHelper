@@ -18,6 +18,8 @@ jobs:
         run: dotnet restore backend/ShoppingHelper.Api/ShoppingHelper.Api.csproj
       - name: Build backend
         run: dotnet build backend/ShoppingHelper.Api/ShoppingHelper.Api.csproj -c Release --no-restore
+      - name: Build backend Docker image
+        run: docker build -t shoppinghelper-api-ci backend/ShoppingHelper.Api
 
   android:
     runs-on: ubuntu-latest
@@ -29,7 +31,7 @@ jobs:
           java-version: '17'
       - uses: android-actions/setup-android@v3
       - name: Install Android SDK 37
-        run: sdkmanager "platforms;android-37" "build-tools;36.0.0"
+        run: sdkmanager "platforms;android-37.0" "build-tools;37.0.0"
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.4.1'
