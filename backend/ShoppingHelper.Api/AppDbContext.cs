@@ -71,7 +71,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
             entity.Property(x => x.UnitPrice).HasPrecision(12, 2);
             entity.HasIndex(x => x.NormalizedName);
             entity.HasIndex(x => new { x.Store, x.PriceDate });
-            entity.HasIndex(x => new { x.Source, x.ExternalId, x.Store }).IsUnique().HasFilter("\"ExternalId\" IS NOT NULL");
+            entity.HasIndex(x => new { x.Source, x.ExternalId, x.Store, x.PriceDate })
+                .IsUnique()
+                .HasFilter("\"ExternalId\" IS NOT NULL");
         });
     }
 }
