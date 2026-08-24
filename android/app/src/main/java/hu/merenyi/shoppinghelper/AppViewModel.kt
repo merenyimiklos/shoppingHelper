@@ -1,6 +1,9 @@
 package hu.merenyi.shoppinghelper
 
 import android.app.Application
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.launch
@@ -25,7 +28,7 @@ data class AppUiState(
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = ShoppingRepository(application)
-    var state by androidx.compose.runtime.mutableStateOf(AppUiState())
+    var state by mutableStateOf(AppUiState())
         private set
 
     init {
@@ -134,7 +137,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         runCatching {
             repository.connectRealtime(list.id) { changedId ->
                 if (changedId.equals(state.selectedList?.id, ignoreCase = true)) {
-                    viewModelScope.launch { refreshSelectedList(showLoading = false) }
+                    viewModelScope.launch { refreshSelectedListInternal() }
                 }
             }
         }
@@ -150,18 +153,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (name.isBlank()) return
         runAction {
             repository.addItem(listId, name.trim(), quantity, unit, note)
-            refreshSelectedList(showLoading = false)
+            refreshSelectedListInternal()
         }
     }
 
     fun toggleItem(item: ShoppingItemDto) = runAction {
         repository.updateItem(item.id, UpdateItemRequest(isChecked = !item.isChecked))
-        refreshSelectedList(showLoading = false)
+        refreshSelectedListInternal()
     }
 
     fun deleteItem(item: ShoppingItemDto) = runAction {
         repository.deleteItem(item.id)
-        refreshSelectedList(showLoading = false)
+        refreshSelectedListInternal()
     }
 
     fun searchOffers(itemName: String) = runAction {
@@ -173,9 +176,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         state = state.copy(offers = emptyList(), offerQuery = null)
     }
 
-    fun refreshSelectedList() = runAction { refreshSelectedList(showLoading = false) }
+    fun refreshSelectedList() = runAction { refreshSelectedListInternal() }
 
-    private suspend fun refreshSelectedList(showLoading: Boolean) {
+    private suspend fun refreshSelectedListInternal() {
         val listId = state.selectedList?.id ?: return
         val list = repository.list(listId)
         state = state.copy(selectedList = list)
@@ -205,9 +208,5 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             else -> "Szerverhiba (${t.code()})."
         }
         else -> t.message ?: "Ismeretlen hiba történt."
-    }
-
-    override fun onCleared() {
-        super.onCleared()
     }
 }
