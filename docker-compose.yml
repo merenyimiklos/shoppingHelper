@@ -1,0 +1,46 @@
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-shoppinghelper}
+      POSTGRES_USER: ${POSTGRES_USER:-shoppinghelper}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - shoppinghelper-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-shoppinghelper} -d ${POSTGRES_DB:-shoppinghelper}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - shoppinghelper
+
+  api:
+    build:
+      context: ./backend/ShoppingHelper.Api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__Default: Host=db;Port=5432;Database=${POSTGRES_DB:-shoppinghelper};Username=${POSTGRES_USER:-shoppinghelper};Password=${POSTGRES_PASSWORD}
+      Jwt__Key: ${JWT_KEY:?Set JWT_KEY in .env}
+      Jwt__Issuer: ShoppingHelper
+      Jwt__Audience: ShoppingHelper.Android
+      ProductImport__DailyDataUrl: ${GVH_DAILY_DATA_URL:-}
+    ports:
+      - "${SHOPPINGHELPER_BIND:-127.0.0.1}:${SHOPPINGHELPER_PORT:-5180}:8080"
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - shoppinghelper
+
+volumes:
+  shoppinghelper-db:
+
+networks:
+  shoppinghelper:
+    driver: bridge
