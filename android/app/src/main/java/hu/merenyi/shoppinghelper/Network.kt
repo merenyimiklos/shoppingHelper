@@ -58,6 +58,38 @@ data class ProductOfferDto(
     val priceDate: String
 )
 
+data class BasketLineDto(
+    val itemId: String,
+    val query: String,
+    val quantity: Double,
+    val unit: String,
+    val store: String,
+    val matched: Boolean,
+    val productName: String?,
+    val packageSize: String?,
+    val packagePrice: Double?,
+    val unitPrice: Double?,
+    val unitPriceUnit: String?,
+    val estimatedTotal: Double?,
+    val imageUrl: String?,
+    val productUrl: String?,
+    val priceDate: String?
+)
+
+data class StoreBasketDto(
+    val store: String,
+    val estimatedTotal: Double,
+    val matchedItems: Int,
+    val missingItems: Int,
+    val lines: List<BasketLineDto>
+)
+
+data class BasketComparisonDto(
+    val listId: String,
+    val generatedAt: String,
+    val stores: List<StoreBasketDto>
+)
+
 interface ShoppingApi {
     @POST("api/auth/register")
     suspend fun register(@Body body: RegisterRequest): AuthResponse
@@ -85,6 +117,12 @@ interface ShoppingApi {
 
     @GET("api/lists/{id}")
     suspend fun list(@Path("id") listId: String): ShoppingListDto
+
+    @GET("api/lists/{id}/price-comparison")
+    suspend fun priceComparison(
+        @Path("id") listId: String,
+        @Query("stores") stores: String = "Lidl,SPAR"
+    ): BasketComparisonDto
 
     @POST("api/lists/{id}/items")
     suspend fun addItem(@Path("id") listId: String, @Body body: CreateItemRequest): ShoppingItemDto
