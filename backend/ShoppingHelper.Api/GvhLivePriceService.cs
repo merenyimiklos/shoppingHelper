@@ -40,7 +40,7 @@ public sealed class GvhLivePriceService(
             return cached;
 
         var baseUrl = (configuration["GvhLiveSearch:BaseUrl"] ?? "https://arfigyelo.gvh.hu").TrimEnd('/');
-        var escaped = Uri.EscapeDataString(query.Trim()).Replace("%20", "+", StringComparison.Ordinal);
+        var escaped = Uri.EscapeDataString(query.Trim());
         var url = $"{baseUrl}/kereses/{escaped}?order=relevance";
 
         try
