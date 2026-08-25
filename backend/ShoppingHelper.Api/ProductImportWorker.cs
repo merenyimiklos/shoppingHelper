@@ -2,6 +2,7 @@ using System.Globalization;
 using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
+using ClosedXML.Excel;
 using Microsoft.EntityFrameworkCore;
 
 namespace ShoppingHelper.Api;
@@ -126,9 +127,7 @@ public sealed class ProductImportWorker(
         var unitPriceRaw = Get("unitprice", "unit_price", "egysegar", "egyseg_ar");
         decimal? unitPrice = TryMoney(unitPriceRaw, out var parsedUnitPrice) ? parsedUnitPrice : null;
         var dateRaw = Get("pricedate", "price_date", "datum", "date");
-        var priceDate = DateOnly.TryParse(dateRaw, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedDate)
-            ? parsedDate
-            : fallbackDate;
+        var priceDate = TryDate(dateRaw, out var parsedDate) ? parsedDate : fallbackDate;
 
         return new ProductOffer
         {
@@ -147,6 +146,15 @@ public sealed class ProductImportWorker(
             PriceDate = priceDate,
             FetchedAt = DateTimeOffset.UtcNow
         };
+    }
+
+    private static bool TryDate(string? value, out DateOnly date)
+    {
+        date = default;
+        if (string.IsNullOrWhiteSpace(value)) return false;
+        var formats = new[] { "yyyy-MM-dd", "yyyy.MM.dd", "yyyy.MM.dd.", "yyyy/MM/dd", "M/d/yyyy", "MM/dd/yyyy" };
+        if (DateOnly.TryParseExact(value.Trim(), formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out date)) return true;
+        return DateOnly.TryParse(value, CultureInfo.GetCultureInfo("hu-HU"), DateTimeStyles.None, out date);
     }
 
     private static string CanonicalStore(string value)
@@ -187,25 +195,65 @@ public sealed class ProductImportWorker(
         await source.CopyToAsync(buffer, cancellationToken);
         buffer.Position = 0;
 
+        if (url.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase)
+            || mediaType?.Contains("spreadsheet", StringComparison.OrdinalIgnoreCase) == true
+            || mediaType?.Contains("openxmlformats", StringComparison.OrdinalIgnoreCase) == true)
+            return ReadXlsx(buffer);
+
         if (url.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) || mediaType?.Contains("zip", StringComparison.OrdinalIgnoreCase) == true)
         {
             using var archive = new ZipArchive(buffer, ZipArchiveMode.Read, leaveOpen: true);
             var entry = archive.Entries.FirstOrDefault(x => x.Name.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
-                        ?? archive.Entries.FirstOrDefault(x => x.Name.EndsWith(".csv", StringComparison.OrdinalIgnoreCase));
+                        ?? archive.Entries.FirstOrDefault(x => x.Name.EndsWith(".csv", StringComparison.OrdinalIgnoreCase))
+                        ?? archive.Entries.FirstOrDefault(x => x.Name.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase));
             if (entry is null) return [];
             await using var entryStream = entry.Open();
             var copy = new MemoryStream();
             await entryStream.CopyToAsync(copy, cancellationToken);
             copy.Position = 0;
-            return entry.Name.EndsWith(".json", StringComparison.OrdinalIgnoreCase)
-                ? await ReadJson(copy, cancellationToken)
-                : await ReadCsv(copy, cancellationToken);
+            if (entry.Name.EndsWith(".json", StringComparison.OrdinalIgnoreCase)) return await ReadJson(copy, cancellationToken);
+            if (entry.Name.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase)) return ReadXlsx(copy);
+            return await ReadCsv(copy, cancellationToken);
         }
 
         if (url.EndsWith(".json", StringComparison.OrdinalIgnoreCase) || mediaType?.Contains("json", StringComparison.OrdinalIgnoreCase) == true)
             return await ReadJson(buffer, cancellationToken);
 
         return await ReadCsv(buffer, cancellationToken);
+    }
+
+    private static List<Dictionary<string, string?>> ReadXlsx(Stream stream)
+    {
+        stream.Position = 0;
+        using var workbook = new XLWorkbook(stream);
+        var worksheet = workbook.Worksheets.FirstOrDefault();
+        var range = worksheet?.RangeUsed();
+        if (worksheet is null || range is null) return [];
+
+        var firstRow = range.FirstRowUsed().RowNumber();
+        var lastRow = range.LastRowUsed().RowNumber();
+        var firstColumn = range.FirstColumnUsed().ColumnNumber();
+        var lastColumn = range.LastColumnUsed().ColumnNumber();
+        var headers = new List<string>();
+        for (var column = firstColumn; column <= lastColumn; column++)
+            headers.Add(NormalizeHeader(worksheet.Cell(firstRow, column).GetFormattedString()));
+
+        var result = new List<Dictionary<string, string?>>();
+        for (var rowNumber = firstRow + 1; rowNumber <= lastRow; rowNumber++)
+        {
+            var row = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+            var hasValue = false;
+            for (var column = firstColumn; column <= lastColumn; column++)
+            {
+                var header = headers[column - firstColumn];
+                if (string.IsNullOrWhiteSpace(header)) continue;
+                var value = worksheet.Cell(rowNumber, column).GetFormattedString().Trim();
+                if (!string.IsNullOrWhiteSpace(value)) hasValue = true;
+                row[header] = string.IsNullOrWhiteSpace(value) ? null : value;
+            }
+            if (hasValue) result.Add(row);
+        }
+        return result;
     }
 
     private static async Task<List<Dictionary<string, string?>>> ReadJson(Stream stream, CancellationToken cancellationToken)
