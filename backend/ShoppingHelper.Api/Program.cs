@@ -57,14 +57,25 @@ public partial class Program
                     }
                 };
             });
+
         builder.Services.AddAuthorization();
         builder.Services.AddSignalR();
+        builder.Services.AddMemoryCache();
         builder.Services.AddSingleton<IJwtTokenService, JwtTokenService>();
+
         builder.Services.AddHttpClient("product-import", client =>
         {
             client.Timeout = TimeSpan.FromMinutes(5);
             client.DefaultRequestHeaders.UserAgent.ParseAdd("ShoppingHelper/1.0 (+self-hosted price importer)");
         });
+        builder.Services.AddHttpClient("gvh-live", client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(20);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("ShoppingHelper/1.0 (+private self-hosted shopping assistant)");
+            client.DefaultRequestHeaders.Accept.ParseAdd("text/html,application/xhtml+xml");
+        });
+        builder.Services.AddSingleton<GvhLivePriceService>();
+        builder.Services.AddScoped<PriceLookupService>();
         builder.Services.AddHostedService<ProductImportWorker>();
         builder.Services.AddHealthChecks();
         builder.Services.AddCors(options => options.AddDefaultPolicy(policy =>
@@ -231,6 +242,17 @@ public partial class Program
             return Results.Ok(ToDto(list));
         });
 
+        lists.MapGet("/{listId:guid}/price-comparison", async (
+            Guid listId,
+            string? stores,
+            System.Security.Claims.ClaimsPrincipal principal,
+            PriceLookupService prices,
+            CancellationToken cancellationToken) =>
+        {
+            var result = await prices.CompareListAsync(listId, principal.UserId(), stores, cancellationToken);
+            return result is null ? Results.NotFound() : Results.Ok(result);
+        });
+
         lists.MapPost("/{listId:guid}/items", async (
             Guid listId,
             CreateItemRequest request,
@@ -316,24 +338,13 @@ public partial class Program
     private static void MapProducts(WebApplication app)
     {
         var api = app.MapGroup("/api/products").RequireAuthorization();
-        api.MapGet("/search", async (string q, string? stores, AppDbContext db) =>
+        api.MapGet("/search", async (
+            string q,
+            string? stores,
+            PriceLookupService prices,
+            CancellationToken cancellationToken) =>
         {
-            var normalized = TextNormalizer.NormalizeSearch(q);
-            if (normalized.Length < 2) return Results.Ok(Array.Empty<ProductOfferDto>());
-            var storeList = (stores ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            var latestDate = await db.ProductOffers.MaxAsync(x => (DateOnly?)x.PriceDate);
-            if (latestDate is null) return Results.Ok(Array.Empty<ProductOfferDto>());
-
-            var query = db.ProductOffers.AsNoTracking()
-                .Where(x => x.PriceDate == latestDate && EF.Functions.ILike(x.NormalizedName, $"%{normalized}%"));
-            if (storeList.Length > 0) query = query.Where(x => storeList.Contains(x.Store));
-
-            var result = await query
-                .OrderBy(x => x.Price)
-                .ThenBy(x => x.Store)
-                .Take(50)
-                .Select(x => new ProductOfferDto(x.Id, x.Store, x.ProductName, x.Brand, x.PackageSize, x.Price, x.UnitPrice, x.UnitPriceUnit, x.ImageUrl, x.ProductUrl, x.PriceDate))
-                .ToListAsync();
+            var result = await prices.SearchAsync(q, stores, cancellationToken);
             return Results.Ok(result);
         });
     }
