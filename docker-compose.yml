@@ -31,6 +31,8 @@ services:
       Jwt__Issuer: ShoppingHelper
       Jwt__Audience: ShoppingHelper.Android
       ProductImport__DailyDataUrl: ${GVH_DAILY_DATA_URL:-}
+      GvhLiveSearch__Enabled: ${GVH_LIVE_SEARCH_ENABLED:-true}
+      GvhLiveSearch__BaseUrl: ${GVH_BASE_URL:-https://arfigyelo.gvh.hu}
     ports:
       - "${SHOPPINGHELPER_BIND:-127.0.0.1}:${SHOPPINGHELPER_PORT:-5180}:8080"
     security_opt:
