@@ -129,7 +129,7 @@ public sealed class GvhLivePriceService(
         }
 
         return result
-            .GroupBy(x => new { x.Store, x.ProductName, x.PackageSize, x.Price }, StringTupleComparer.Instance)
+            .GroupBy(x => $"{x.Store}\u001f{x.ProductName}\u001f{x.PackageSize}\u001f{x.Price}", StringComparer.OrdinalIgnoreCase)
             .Select(x => x.First())
             .OrderBy(x => x.Price)
             .ThenBy(x => x.Store)
@@ -231,11 +231,4 @@ public sealed class GvhLivePriceService(
     }
 
     private static string Collapse(string value) => Regex.Replace(value, @"\s+", " ").Trim();
-
-    private sealed class StringTupleComparer : IEqualityComparer<object>
-    {
-        public static readonly StringTupleComparer Instance = new();
-        public new bool Equals(object? x, object? y) => x?.ToString() == y?.ToString();
-        public int GetHashCode(object obj) => obj.ToString()?.GetHashCode(StringComparison.Ordinal) ?? 0;
-    }
 }
