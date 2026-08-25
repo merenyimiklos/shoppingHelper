@@ -104,3 +104,32 @@ public sealed record ShoppingListSummaryDto(Guid Id, string Name, int OpenItems,
 public sealed record ShoppingItemDto(Guid Id, string Name, decimal Quantity, string Unit, string? Note, bool IsChecked, int Position, Guid AddedByUserId, Guid? CheckedByUserId, DateTimeOffset UpdatedAt);
 public sealed record ShoppingListDto(Guid Id, Guid HouseholdId, string Name, IReadOnlyList<ShoppingItemDto> Items, DateTimeOffset UpdatedAt);
 public sealed record ProductOfferDto(Guid Id, string Store, string ProductName, string? Brand, string? PackageSize, decimal Price, decimal? UnitPrice, string? UnitPriceUnit, string? ImageUrl, string? ProductUrl, DateOnly PriceDate);
+
+public sealed record BasketLineDto(
+    Guid ItemId,
+    string Query,
+    decimal Quantity,
+    string Unit,
+    string Store,
+    bool Matched,
+    string? ProductName,
+    string? PackageSize,
+    decimal? PackagePrice,
+    decimal? UnitPrice,
+    string? UnitPriceUnit,
+    decimal? EstimatedTotal,
+    string? ImageUrl,
+    string? ProductUrl,
+    DateOnly? PriceDate);
+
+public sealed record StoreBasketDto(
+    string Store,
+    decimal EstimatedTotal,
+    int MatchedItems,
+    int MissingItems,
+    IReadOnlyList<BasketLineDto> Lines);
+
+public sealed record BasketComparisonDto(
+    Guid ListId,
+    DateTimeOffset GeneratedAt,
+    IReadOnlyList<StoreBasketDto> Stores);
