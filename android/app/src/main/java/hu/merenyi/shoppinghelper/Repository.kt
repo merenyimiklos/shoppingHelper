@@ -9,7 +9,6 @@ import com.microsoft.signalr.HubConnection
 import com.microsoft.signalr.HubConnectionBuilder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 
 private val Context.sessionDataStore by preferencesDataStore(name = "shoppinghelper_session")
@@ -62,6 +61,7 @@ class ShoppingRepository(context: Context) {
     suspend fun lists(householdId: String) = api.lists(householdId)
     suspend fun createList(householdId: String, name: String) = api.createList(householdId, CreateListRequest(name))
     suspend fun list(listId: String) = api.list(listId)
+    suspend fun priceComparison(listId: String, stores: String = "Lidl,SPAR") = api.priceComparison(listId, stores)
     suspend fun addItem(listId: String, name: String, quantity: Double = 1.0, unit: String = "db", note: String? = null) =
         api.addItem(listId, CreateItemRequest(name, quantity, unit, note))
     suspend fun updateItem(itemId: String, update: UpdateItemRequest) = api.updateItem(itemId, update)
