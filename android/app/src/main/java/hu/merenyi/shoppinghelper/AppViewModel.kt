@@ -21,6 +21,7 @@ data class AppUiState(
     val selectedList: ShoppingListDto? = null,
     val offers: List<ProductOfferDto> = emptyList(),
     val offerQuery: String? = null,
+    val basketComparison: BasketComparisonDto? = null,
     val invite: InviteDto? = null,
     val loading: Boolean = false,
     val error: String? = null
@@ -104,13 +105,25 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun selectHouseholdInternal(household: HouseholdDto) {
         repository.disconnectRealtime()
         val lists = repository.lists(household.id)
-        state = state.copy(selectedHousehold = household, lists = lists, selectedList = null, invite = null)
+        state = state.copy(
+            selectedHousehold = household,
+            lists = lists,
+            selectedList = null,
+            invite = null,
+            basketComparison = null
+        )
         if (lists.size == 1) selectListInternal(lists.first().id)
     }
 
     fun leaveHouseholdView() = viewModelScope.launch {
         repository.disconnectRealtime()
-        state = state.copy(selectedHousehold = null, lists = emptyList(), selectedList = null, invite = null)
+        state = state.copy(
+            selectedHousehold = null,
+            lists = emptyList(),
+            selectedList = null,
+            invite = null,
+            basketComparison = null
+        )
     }
 
     fun createInvite() {
@@ -133,7 +146,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun selectListInternal(listId: String) {
         val list = repository.list(listId)
-        state = state.copy(selectedList = list, offers = emptyList(), offerQuery = null)
+        state = state.copy(
+            selectedList = list,
+            offers = emptyList(),
+            offerQuery = null,
+            basketComparison = null
+        )
         runCatching {
             repository.connectRealtime(list.id) { changedId ->
                 if (changedId.equals(state.selectedList?.id, ignoreCase = true)) {
@@ -145,7 +163,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun leaveListView() = viewModelScope.launch {
         repository.disconnectRealtime()
-        state = state.copy(selectedList = null, offers = emptyList(), offerQuery = null)
+        state = state.copy(
+            selectedList = null,
+            offers = emptyList(),
+            offerQuery = null,
+            basketComparison = null
+        )
     }
 
     fun addItem(name: String, quantity: Double = 1.0, unit: String = "db", note: String? = null) {
@@ -154,17 +177,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         runAction {
             repository.addItem(listId, name.trim(), quantity, unit, note)
             refreshSelectedListInternal()
+            state = state.copy(basketComparison = null)
         }
     }
 
     fun toggleItem(item: ShoppingItemDto) = runAction {
         repository.updateItem(item.id, UpdateItemRequest(isChecked = !item.isChecked))
         refreshSelectedListInternal()
+        state = state.copy(basketComparison = null)
     }
 
     fun deleteItem(item: ShoppingItemDto) = runAction {
         repository.deleteItem(item.id)
         refreshSelectedListInternal()
+        state = state.copy(basketComparison = null)
     }
 
     fun searchOffers(itemName: String) = runAction {
@@ -174,6 +200,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun dismissOffers() {
         state = state.copy(offers = emptyList(), offerQuery = null)
+    }
+
+    fun compareBasket() {
+        val listId = state.selectedList?.id ?: return
+        runAction {
+            state = state.copy(basketComparison = repository.priceComparison(listId))
+        }
+    }
+
+    fun dismissBasketComparison() {
+        state = state.copy(basketComparison = null)
     }
 
     fun refreshSelectedList() = runAction { refreshSelectedListInternal() }
