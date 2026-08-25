@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -26,8 +25,10 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.GroupAdd
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.PriceCheck
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -42,7 +43,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -60,6 +60,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
@@ -115,6 +117,8 @@ fun ShoppingHelperApp(vm: AppViewModel) {
                     onDelete = vm::deleteItem,
                     onPrices = { vm.searchOffers(it.name) },
                     onDismissOffers = vm::dismissOffers,
+                    onCompareBasket = vm::compareBasket,
+                    onDismissBasketComparison = vm::dismissBasketComparison,
                     onRefresh = vm::refreshSelectedList
                 )
             }
@@ -349,10 +353,13 @@ private fun ShoppingListScreen(
     onDelete: (ShoppingItemDto) -> Unit,
     onPrices: (ShoppingItemDto) -> Unit,
     onDismissOffers: () -> Unit,
+    onCompareBasket: () -> Unit,
+    onDismissBasketComparison: () -> Unit,
     onRefresh: () -> Unit
 ) {
     var newItem by rememberSaveable { mutableStateOf("") }
     val list = state.selectedList ?: return
+    val openItems = list.items.count { !it.isChecked }
     val speechLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val text = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
         if (!text.isNullOrBlank()) onAdd(text)
@@ -362,7 +369,12 @@ private fun ShoppingListScreen(
         TopAppBar(
             title = { Text(list.name) },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Vissza") } },
-            actions = { IconButton(onClick = onRefresh) { Icon(Icons.Default.Refresh, "Frissítés") } }
+            actions = {
+                IconButton(enabled = openItems > 0, onClick = onCompareBasket) {
+                    Icon(Icons.Default.ShoppingCart, "Kosár ár-összehasonlítás")
+                }
+                IconButton(onClick = onRefresh) { Icon(Icons.Default.Refresh, "Frissítés") }
+            }
         )
 
         Row(
@@ -390,6 +402,18 @@ private fun ShoppingListScreen(
             }
         }
 
+        if (openItems > 0) {
+            FilledTonalButton(
+                onClick = onCompareBasket,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp)
+            ) {
+                Icon(Icons.Default.ShoppingCart, null)
+                Spacer(Modifier.size(8.dp))
+                Text("Hol olcsóbb a kosár? • Lidl vs SPAR")
+            }
+            Spacer(Modifier.height(6.dp))
+        }
+
         if (list.items.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
                 Text("A lista még üres. Adj hozzá valamit vagy mondd be mikrofonnal.")
@@ -410,6 +434,12 @@ private fun ShoppingListScreen(
     if (state.offerQuery != null) {
         ModalBottomSheet(onDismissRequest = onDismissOffers) {
             OfferSheet(state.offerQuery, state.offers)
+        }
+    }
+
+    state.basketComparison?.let { comparison ->
+        ModalBottomSheet(onDismissRequest = onDismissBasketComparison) {
+            BasketComparisonSheet(comparison)
         }
     }
 }
@@ -438,7 +468,7 @@ private fun ShoppingItemRow(
                     Text(listOfNotNull(qty, item.note).joinToString(" • "), style = MaterialTheme.typography.bodySmall)
                 }
             }
-            IconButton(onClick = { onPrices(item) }) { Icon(Icons.Default.PriceCheck, "Árak") }
+            IconButton(onClick = { onPrices(item) }) { Icon(Icons.Default.PriceCheck, "Árak és termékek") }
             IconButton(onClick = { onDelete(item) }) { Icon(Icons.Default.Delete, "Törlés") }
         }
     }
@@ -446,33 +476,42 @@ private fun ShoppingItemRow(
 
 @Composable
 private fun OfferSheet(query: String, offers: List<ProductOfferDto>) {
+    val uriHandler = LocalUriHandler.current
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
         Text("Árak: $query", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        Text("A legfrissebb importált Lidl/SPAR ajánlatok", style = MaterialTheme.typography.bodyMedium)
+        Text("Árfigyelő és importált napi adatok • Lidl + SPAR", style = MaterialTheme.typography.bodyMedium)
         Spacer(Modifier.height(12.dp))
         if (offers.isEmpty()) {
-            Text("Ehhez a kereséshez nincs aktuális találat az adatbázisban.")
+            Text("Ehhez a kereséshez most nincs Lidl/SPAR találat.")
             Spacer(Modifier.height(28.dp))
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(offers, key = { it.id }) { offer ->
-                    Card(Modifier.fillMaxWidth()) {
+                    val clickable = if (!offer.productUrl.isNullOrBlank()) {
+                        Modifier.clickable { uriHandler.openUri(offer.productUrl) }
+                    } else Modifier
+                    Card(Modifier.fillMaxWidth().then(clickable)) {
                         Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            if (!offer.imageUrl.isNullOrBlank()) {
-                                AsyncImage(
-                                    model = offer.imageUrl,
-                                    contentDescription = offer.productName,
-                                    modifier = Modifier.size(64.dp)
-                                )
-                                Spacer(Modifier.size(10.dp))
-                            }
+                            ProductImage(offer.imageUrl, offer.productName)
+                            Spacer(Modifier.size(10.dp))
                             Column(Modifier.weight(1f)) {
-                                Text(offer.store, fontWeight = FontWeight.Bold)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(offer.store, fontWeight = FontWeight.Bold)
+                                    if (!offer.productUrl.isNullOrBlank()) {
+                                        Spacer(Modifier.size(4.dp))
+                                        Icon(Icons.Default.OpenInNew, "Termék megnyitása", modifier = Modifier.size(15.dp))
+                                    }
+                                }
                                 Text(offer.productName, style = MaterialTheme.typography.bodyMedium)
+                                if (!offer.brand.isNullOrBlank()) Text(offer.brand, style = MaterialTheme.typography.bodySmall)
                                 if (!offer.packageSize.isNullOrBlank()) Text(offer.packageSize, style = MaterialTheme.typography.bodySmall)
                                 offer.unitPrice?.let {
-                                    Text("Egységár: ${formatHuf(it)}${offer.unitPriceUnit?.let { u -> "/$u" }.orEmpty()}", style = MaterialTheme.typography.bodySmall)
+                                    Text(
+                                        "Egységár: ${formatHuf(it)}${offer.unitPriceUnit?.let { u -> "/$u" }.orEmpty()}",
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
                                 }
+                                Text("Áradat: ${offer.priceDate}", style = MaterialTheme.typography.labelSmall)
                             }
                             Text(formatHuf(offer.price), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         }
@@ -480,6 +519,117 @@ private fun OfferSheet(query: String, offers: List<ProductOfferDto>) {
                 }
                 item { Spacer(Modifier.height(28.dp)) }
             }
+        }
+    }
+}
+
+@Composable
+private fun BasketComparisonSheet(comparison: BasketComparisonDto) {
+    val uriHandler = LocalUriHandler.current
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Text("Hol olcsóbb a kosár?", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        Text(
+            "Becsült összeg a nyitott tételekre. A hiányzó találatok nincsenek beleszámolva.",
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Spacer(Modifier.height(12.dp))
+
+        if (comparison.stores.isEmpty()) {
+            Text("Most nem sikerült összehasonlítható árakat találni.")
+            Spacer(Modifier.height(28.dp))
+            return
+        }
+
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            items(comparison.stores, key = { it.store }) { store ->
+                val isBest = store == comparison.stores.first()
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    if (isBest) "${store.store} • legjobb" else store.store,
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    "${store.matchedItems}/${store.matchedItems + store.missingItems} tétel árazva" +
+                                        if (store.missingItems > 0) " • ${store.missingItems} nincs találat" else "",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text("Becsült", style = MaterialTheme.typography.labelSmall)
+                                Text(formatHuf(store.estimatedTotal), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        HorizontalDivider()
+
+                        store.lines.forEach { line ->
+                            val lineClickable = if (!line.productUrl.isNullOrBlank()) {
+                                Modifier.clickable { uriHandler.openUri(line.productUrl) }
+                            } else Modifier
+                            Row(
+                                Modifier.fillMaxWidth().then(lineClickable).padding(vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                if (line.matched) {
+                                    ProductImage(line.imageUrl, line.productName ?: line.query, size = 48)
+                                    Spacer(Modifier.size(8.dp))
+                                }
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        "${prettyQuantity(line.quantity)} ${line.unit} ${line.query}",
+                                        fontWeight = FontWeight.SemiBold,
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                    if (line.matched) {
+                                        Text(line.productName.orEmpty(), style = MaterialTheme.typography.bodySmall)
+                                        val details = listOfNotNull(
+                                            line.packageSize,
+                                            line.packagePrice?.let { "csomag ${formatHuf(it)}" }
+                                        ).joinToString(" • ")
+                                        if (details.isNotBlank()) Text(details, style = MaterialTheme.typography.labelSmall)
+                                    } else {
+                                        Text("Nincs megfelelő találat", style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                                line.estimatedTotal?.let {
+                                    Text(formatHuf(it), fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            item {
+                Text(
+                    "Az árak tájékoztató jellegűek. Az Árfigyelő nem valós idejű bolti készletinformáció.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Spacer(Modifier.height(28.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProductImage(imageUrl: String?, contentDescription: String, size: Int = 72) {
+    if (!imageUrl.isNullOrBlank()) {
+        AsyncImage(
+            model = imageUrl,
+            contentDescription = contentDescription,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.size(size.dp)
+        )
+    } else {
+        Box(Modifier.size(size.dp), contentAlignment = Alignment.Center) {
+            Icon(Icons.Default.PriceCheck, null, modifier = Modifier.size((size / 2).dp))
         }
     }
 }
